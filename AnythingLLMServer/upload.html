@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AnythingLLM 文档上传</title>
+<style>
+  body{font:14px/1.6 system-ui,Arial,sans-serif;max-width:560px;margin:40px auto;padding:0 16px}
+  h1{font-size:18px;margin:0 0 12px}
+  .row{margin:8px 0}
+  #ws{color:#666}
+  button{padding:6px 14px}
+  pre{background:#f4f4f4;padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all}
+  .err{color:#c00}
+</style>
+</head>
+<body>
+<h1>AnythingLLM 文档上传</h1>
+<div id="ws">正在读取工作区…</div>
+<div class="row"><input type="file" id="file"></div>
+<div class="row"><button id="up" disabled>上传并嵌入</button> <span id="st"></span></div>
+<pre id="out"></pre>
+<script>
+const BASE="http://localhost:3001";
+const API_KEY="PBPKTTC-X52M23H-G6Z4M31-PRARZMF";
+const H={"Authorization":"Bearer "+API_KEY};
+let slug=null;
+
+fetch(BASE+"/api/v1/workspaces",{headers:H})
+ .then(r=>r.json()).then(d=>{
+   const w=d.workspaces[0];
+   slug=w.slug;
+   document.getElementById("ws").textContent="目标工作区："+w.name+"（slug: "+slug+"）";
+   document.getElementById("up").disabled=false;
+ }).catch(e=>{document.getElementById("ws").innerHTML='<span class="err">工作区读取失败：'+e+"</span>";});
+
+document.getElementById("up").onclick=async()=>{
+  const f=document.getElementById("file").files[0];
+  if(!f){alert("请先选择文件");return;}
+  const btn=document.getElementById("up"),st=document.getElementById("st"),out=document.getElementById("out");
+  btn.disabled=true;st.textContent="上传中…";out.textContent="";
+  const fd=new FormData();
+  fd.append("file",f);
+  fd.append("addToWorkspaces",slug);
+  try{
+    const r=await fetch(BASE+"/api/v1/document/upload",{method:"POST",headers:H,body:fd});
+    const t=await r.text();
+    let pretty=t;
+    try{pretty=JSON.stringify(JSON.parse(t),null,2);}catch(_){}
+    out.textContent="HTTP "+r.status+"\n\n"+pretty;
+    st.textContent=r.ok?"完成":"失败";
+  }catch(e){out.innerHTML='<span class="err">请求出错：'+e+"</span>";st.textContent="出错";}
+  btn.disabled=false;
+};
+</script>
+</body>
+</html>

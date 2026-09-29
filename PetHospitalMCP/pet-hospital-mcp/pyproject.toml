@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pet-hospital-mcp"
+version = "0.1.0"
+description = "Stateless MCP 2026-07-28 server (Python SDK 2.x MCPServer) exposing the Go pet hospital REST API"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "mcp==2.0.0",
+  "httpx>=0.28,<1",
+  "pydantic>=2.12,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+]
+
+[project.scripts]
+pet-hospital-mcp = "pet_hospital_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pet_hospital_mcp"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+addopts = "-ra"

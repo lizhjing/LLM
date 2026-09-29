@@ -1,0 +1,59 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Go =====
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# ===== 日志 =====
+*.log
+logs/
+
+# ===== 数据库 =====
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== 压缩包 =====
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===== 系统 / 杂项 =====
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+
+# ===== 项目特定:构建产物 / 二进制 =====
+PetHospitalMCP/windows/*.exe
+PetHospitalMCP/pet-hospital-mcp/.venv/

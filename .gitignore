@@ -57,3 +57,6 @@ Thumbs.db
 # ===== 项目特定:构建产物 / 二进制 =====
 PetHospitalMCP/windows/*.exe
 PetHospitalMCP/pet-hospital-mcp/.venv/
+
+# ===== 凭据 / 含密钥的本地配置(不提交)=====
+Agent/Practice01/config.ini

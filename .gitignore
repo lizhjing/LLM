@@ -60,3 +60,4 @@ PetHospitalMCP/pet-hospital-mcp/.venv/
 
 # ===== 凭据 / 含密钥的本地配置(不提交)=====
 Agent/Practice01/config.ini
+Agent/Practice02/config.ini

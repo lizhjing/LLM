@@ -1,0 +1,80 @@
+flowchart TD
+    subgraph Config[配置层]
+        CFG[config.ini<br/>base_url / api_key / model<br/>enable_thinking / typewriter_delay / timeout]
+    end
+
+    subgraph Core[核心模块]
+        TOOLS[TOOLS 列表<br/>13 个 Function Call 工具定义]
+        RUN[run_tool<br/>工具路由与执行]
+        STREAM[_stream_collect<br/>解析流式响应<br/>收集 content + tool_calls]
+        TYPE[_print_typing<br/>打字机逐字输出]
+    end
+
+    subgraph Tools1[日期工具 3 个]
+        TD1[getDate<br/>subprocess 调 date]
+        TD2[isLeapYear<br/>Python 闰年判断]
+        TD3[daysBetween<br/>datetime 计算天数差]
+    end
+
+    subgraph Tools2[文件操作工具 10 个]
+        TF1[getCwd]
+        TF2[listDir]
+        TF3[getFileType]
+        TF4[readFile]
+        TF5[createFile]
+        TF6[writeFile]
+        TF7[createDir]
+        TF8[removeDir]
+        TF9[removeFile]
+        TF10[renamePath]
+    end
+
+    subgraph Loop[主循环 while True]
+        INPUT[input 用户输入]
+        HISTORY[messages 历史列表<br/>MAX_HISTORY = 20]
+        REQ1[POST 请求 1<br/>带 tools 流式]
+        REQ2[POST 请求 2<br/>不带 tools 流式]
+        DECIDE{有 tool_calls?}
+        EXEC[run_tool 逐个执行]
+        TRUNCATE[历史截断 保留最近 20]
+        ERR[异常处理<br/>回滚 + 提示]
+        QUIT[Ctrl+C 退出]
+    end
+
+    subgraph API[外部]
+        LLM[LLM API<br/>SiliconFlow /chat/completions]
+    end
+
+    CFG --> REQ1 & REQ2
+    TOOLS --> REQ1
+    STREAM --> TYPE
+
+    %% 主循环流程
+    INPUT --> HISTORY
+    HISTORY --> REQ1
+    REQ1 --> LLM
+    LLM --> REQ1
+    REQ1 --> STREAM
+    STREAM --> DECIDE
+
+    DECIDE -->|是| EXEC
+    DECIDE -->|否| TRUNCATE
+
+    EXEC --> RUN
+    RUN --> TD1 & TD2 & TD3 & TF1 & TF2 & TF3 & TF4 & TF5 & TF6 & TF7 & TF8 & TF9 & TF10
+    EXEC --> REQ2
+    REQ2 --> LLM
+    LLM --> REQ2
+    REQ2 --> STREAM
+    STREAM --> TRUNCATE
+
+    TRUNCATE --> INPUT
+
+    %% 异常
+    REQ1 -.-> ERR
+    REQ2 -.-> ERR
+    EXEC -.-> ERR
+    ERR --> INPUT
+
+    %% 退出
+    Loop -.->|Ctrl+C| QUIT

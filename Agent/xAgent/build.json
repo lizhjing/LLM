@@ -1,0 +1,48 @@
+{
+  "entry": "main.py",
+  "name": "JAGENT",
+  "display_name": "JAGENT",
+  "version": "1.0.0",
+  "publisher": "JING",
+  "icon": "assets/icon.png",
+  "pyinstaller": {
+    "onefile": false,
+    "windowed": false,
+    "add_data": [
+      "core:core"
+    ],
+    "clean": true,
+    "noconfirm": true,
+    "exclude_module": [
+      "PyQt5",
+      "PySide2",
+      "PySide6",
+      "shiboken2",
+      "shiboken6",
+      "tkinter",
+      "matplotlib",
+      "IPython",
+      "sphinx",
+      "black",
+      "pytest",
+      "yapf",
+      "zmq",
+      "notebook",
+      "jupyter_client",
+      "nbformat"
+    ]
+  },
+  "platforms": {
+    "windows": {
+      "inno_setup": {
+        "create_desktop_icon": true,
+        "create_start_menu_icon": true,
+        "allow_run_after_install": true,
+        "languages": [
+          "english",
+          "chinesesimplified"
+        ]
+      }
+    }
+  }
+}

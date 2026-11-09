@@ -5,7 +5,9 @@ import time
 from core.agent import Agent
 from core.events import (
     AgentEvent,
+    CompactionComplete,
     ContentDelta,
+    ContextWarning,
     ToolCallStarted,
     ToolResult,
     TurnComplete,
@@ -49,6 +51,12 @@ class ConsoleUI(BaseUI):
         elif isinstance(event, TurnError):
             self._close_assistant()
             print(f"\n[本轮出错,已跳过:{event.message}]")
+        elif isinstance(event, ContextWarning):
+            self._close_assistant()
+            print(f"\n[上下文告警:{event.message}]")
+        elif isinstance(event, CompactionComplete):
+            self._close_assistant()
+            print(f"\n[上下文压缩完成,原始记录已归档为 {event.archive_id}]")
 
     def _type_out(self, text: str) -> None:
         """打字机效果逐字输出。"""

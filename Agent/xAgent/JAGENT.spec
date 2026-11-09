@@ -7,8 +7,13 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('core', 'core')],
-    hiddenimports=[],
+    datas=[('core', 'core'), ('config.ini', '.')],
+    hiddenimports=[
+        "mcp",
+        "mcp.client.stdio",
+        "mcp.client.streamable_http",
+        "anyio._backends._asyncio",  # anyio 按字符串动态导入后端,PyInstaller 静态分析不到
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

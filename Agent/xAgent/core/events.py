@@ -48,3 +48,22 @@ class TurnError(AgentEvent):
     """本轮对话失败(网络异常、响应解析失败等),历史已回滚。"""
 
     message: str
+
+
+@dataclass(frozen=True)
+class ContextWarning(AgentEvent):
+    """上下文占用达到阈值(本轮对话本身已正常完成)。
+
+    提示用户执行 /compact;此后 Agent 暂停接受新的普通用户提示词,
+    直到压缩成功完成。
+    """
+
+    message: str
+
+
+@dataclass(frozen=True)
+class CompactionComplete(AgentEvent):
+    """上下文压缩完成,历史已被摘要替换。"""
+
+    archive_id: str  # 原始上下文归档编号,可用 recallContext 检索
+    summary: str  # 压缩摘要全文(含归档说明)

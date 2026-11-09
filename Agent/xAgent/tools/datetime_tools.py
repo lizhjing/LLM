@@ -1,7 +1,5 @@
 """日期与时间相关工具。"""
 
-import subprocess
-import sys
 from datetime import datetime
 from typing import Any
 
@@ -9,22 +7,8 @@ from .registry import ToolRegistry, ToolSpec
 
 
 def get_date(_: dict[str, Any]) -> str:
-    """获取当前系统日期时间(与原实现一致,Windows 使用 cmd 内置命令)。"""
-    if sys.platform == "win32":
-        result = subprocess.run(
-            ["cmd", "/c", "date /t & time /t"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    else:
-        result = subprocess.run(
-            ["date"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    return result.stdout.strip()
+    """获取当前系统日期时间(本地时区,含英文星期)。"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
 
 
 def is_leap_year(arguments: dict[str, Any]) -> str:

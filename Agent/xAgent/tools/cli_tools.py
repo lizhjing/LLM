@@ -1,20 +1,20 @@
 """CLI 工具:RunCli —— 让 Agent 通过 subprocess 调用本地命令行程序。
 
-仅用于受控教学实验环境:不设命令白名单/黑名单/审批机制,命令以运行 xAgent
-的当前用户权限执行。始终把程序名与参数拼装为列表并以 shell=False 执行,
-避免拼接 Shell 命令字符串带来的转义与注入问题。
+安全边界:命令必须在白名单内(默认集合,可用环境变量 XAGENT_CLI_ALLOWLIST
+覆盖);shell/脚本宿主(cmd/powershell/wscript 等)无条件禁止,防止 `cmd /c`
+类任意命令执行。程序名与参数始终以列表 + shell=False 执行,无拼接注入问题。
 """
 
+import os
 import shlex
 import subprocess
+from pathlib import Path
 from typing import Any
 
-from .registry import ToolRegistry, ToolSpec
+from .registry import ToolRegistry, ToolSpec, text_result_limit
 
 _DEFAULT_TIMEOUT = 30  # 默认执行超时(秒)
 _MAX_TIMEOUT = 300     # 允许设置的超时上限
-# 单个流(stdout/stderr)的最大返回字符数,与项目 2000 字符截断约定一致
-_MAX_OUTPUT_CHARS = 2000
 
 
 def _decode(data: bytes | None) -> str:
@@ -41,12 +41,50 @@ def _decode(data: bytes | None) -> str:
 
 def _truncate(text: str) -> str:
     """超长输出截断并标明截断情况,避免大量终端输出占用上下文。"""
-    if len(text) <= _MAX_OUTPUT_CHARS:
+    limit = text_result_limit()
+    if len(text) <= limit:
         return text
     return (
-        text[:_MAX_OUTPUT_CHARS]
-        + f"\n...(已截断:原始输出共 {len(text)} 字符,仅保留前 {_MAX_OUTPUT_CHARS} 字符)"
+        text[:limit]
+        + f"\n...(已截断:原始输出共 {len(text)} 字符,仅保留前 {limit} 字符)"
     )
+
+
+# ===== 命令执行安全边界 =====
+# 始终禁止的 shell/脚本宿主(即使被加入白名单也不放行),堵住 cmd /c、python -c 类任意执行
+_ALWAYS_BLOCKED = {
+    "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+    "wscript", "wscript.exe", "cscript", "cscript.exe", "mshta", "mshta.exe",
+    "regsvr32", "regsvr32.exe", "rundll32", "rundll32.exe", "certutil", "certutil.exe",
+}
+# 默认命令白名单;环境变量 XAGENT_CLI_ALLOWLIST(逗号分隔)可整体覆盖
+_DEFAULT_ALLOWLIST = {
+    "officecli", "git", "python", "python3", "pip", "node", "npm",
+    "where", "dir", "type", "findstr", "curl", "ping", "ipconfig",
+}
+
+
+def _allowlist() -> set[str]:
+    extra = os.environ.get("XAGENT_CLI_ALLOWLIST", "")
+    if extra.strip():
+        return {item.strip().lower() for item in extra.split(",") if item.strip()}
+    return _DEFAULT_ALLOWLIST
+
+
+def _command_rejected(command: str) -> str | None:
+    """返回拒绝执行的原因;None 表示允许。"""
+    name = Path(command).name.lower()
+    if name.endswith(".exe"):
+        name = name[:-4]
+    if name in _ALWAYS_BLOCKED:
+        return f"安全限制:禁止执行 shell/脚本宿主「{command}」(防止任意命令执行)"
+    if name not in _allowlist():
+        allowed = ", ".join(sorted(_allowlist()))
+        return (
+            f"安全限制:命令「{command}」不在白名单内。允许的命令: {allowed};"
+            "如需扩展,请设置环境变量 XAGENT_CLI_ALLOWLIST(逗号分隔)"
+        )
+    return None
 
 
 def run_cli(arguments: dict[str, Any]) -> str:
@@ -54,6 +92,9 @@ def run_cli(arguments: dict[str, Any]) -> str:
     command = str(arguments.get("command", "")).strip()
     if not command:
         return "参数错误:command 不能为空"
+    rejected = _command_rejected(command)
+    if rejected:
+        return rejected
 
     # args 应为字符串列表;若模型误传字符串则按空白切分做兼容
     raw_args = arguments.get("args") or []
@@ -110,6 +151,8 @@ def register(registry: ToolRegistry) -> None:
                 "执行本地命令行程序并返回 stdout、stderr 与退出码,供判断执行结果并决定下一步。"
                 "以参数列表方式执行(shell=False),在当前工作目录以当前用户权限运行,"
                 "仅用于受控教学实验环境。示例:command='git', args=['--version']。"
+                "操作 Office 文档(.docx/.xlsx/.pptx)前,务必先用 loadSkill 加载 officecli "
+                "技能获取正确命令语法;不要反复运行 --help,其输出长且会被截断。"
             ),
             parameters={
                 "type": "object",

@@ -1,0 +1,23 @@
+[llm]
+; api_key 的三种提供方式(优先级从高到低):
+;   1. 环境变量 XAGENT_LLM_API_KEY
+;   2. 系统凭据管理器:python main.py --set-key llm
+;   3. 直接写在本文件(明文,不推荐提交或随产物分发)
+base_url = https://api.siliconflow.cn/v1
+api_key = your-api-key-here
+model = Qwen/Qwen3.5-4B
+enable_thinking = false
+timeout = 120
+; 模型上下文窗口大小(tokens),用于 80% 占用告警;0 或省略 = 未知(按 128k 处理)
+context_window = 0
+
+[ui]
+typewriter_delay = 0.01
+max_history = 20
+
+[search]
+; 搜索 api_key 同样支持环境变量 XAGENT_SEARCH_API_KEY 或 --set-key search
+api_key = your-search-api-key-here
+base_url = https://qianfan.baidubce.com/v2/ai_search/web_search
+timeout = 30
+max_results = 10

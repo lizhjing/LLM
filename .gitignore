@@ -9,8 +9,6 @@ env/
 ENV/
 *.egg-info/
 .eggs/
-dist/
-build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -19,18 +17,27 @@ build/
 *.exe
 *.exe~
 *.dll
-*.so
 *.dylib
 *.test
 *.out
 vendor/
 
-# ===== 日志 =====
+# ===== 构建产物 / 打包中间文件 =====
+dist/
+build/
+Agent/xAgent/installer/
+Agent/xAgent/.unifypy/
+Agent/xAgent/.unifypy_rollback/
+Agent/xAgent/UnknownApp.spec
+
+# ===== 日志 / 运行时数据 =====
 *.log
 logs/
+Agent/xAgent/.agents/context/
 
 # ===== 数据库 =====
 *.db
+*.db.tmp
 *.sqlite
 *.sqlite3
 
@@ -53,11 +60,16 @@ logs/
 Thumbs.db
 *.tmp
 *.bak
+.screenshots/
 
-# ===== 项目特定:构建产物 / 二进制 =====
-PetHospitalMCP/windows/*.exe
+# ===== 项目特定 =====
+PetHospitalMCP/windows/
 PetHospitalMCP/pet-hospital-mcp/.venv/
 
-# ===== 凭据 / 含密钥的本地配置(不提交)=====
+# ===== 凭据 / 含密钥的本地配置（严禁提交）=====
 Agent/Practice01/config.ini
 Agent/Practice02/config.ini
+Agent/xAgent/config.ini
+Agent/xAgent/.mcp.json
+*.env
+.env.*

@@ -26,7 +26,7 @@ pip install -r requirements.txt
 | 变量 | 默认值 |
 |---|---|
 | `ANYTHINGLLM_BASE_URL` | `http://localhost:3001` |
-| `ANYTHINGLLM_API_KEY` | 代码内置的默认 Key |
+| `ANYTHINGLLM_API_KEY` | 无（必须通过环境变量注入，仓库不含任何密钥） |
 
 ## 启动服务器
 

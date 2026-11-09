@@ -7,18 +7,50 @@
 不引入额外第三方包。
 """
 
+import ipaddress
 import re
+import socket
 import subprocess
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
-from .registry import ToolRegistry, ToolSpec
+from .registry import ToolRegistry, ToolSpec, text_result_limit
 
 if TYPE_CHECKING:  # 仅类型检查引用,避免 tools -> core 的运行时反向依赖
     from core.config import SearchConfig
+
+
+def _ssrf_blocked(url: str) -> str | None:
+    """SSRF 防护:解析主机名的全部 IP,拒绝回环/内网/链路本地/保留地址。
+
+    返回拒绝原因;None 表示允许。防止 LLM 被诱导访问 127.0.0.1、内网服务
+    或云元数据端点(169.254.169.254)。
+    """
+    host = urlparse(url).hostname
+    if not host:
+        return "参数错误:url 缺少主机名"
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError as exc:
+        return f"域名解析失败: {exc}"
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return f"安全限制:禁止访问内网/保留地址({host} 解析到 {ip})"
+    return None
 
 # ===== 千帆搜索常量 =====
 _SEARCH_SOURCE = "baidu_search_v2"  # 固定使用的搜索引擎版本
@@ -27,13 +59,12 @@ _MAX_TOP_K = 50  # API 规定网页模态 top_k 上限
 # 单条摘要最大字符数,防止结果集过大撑爆对话上下文
 _MAX_SNIPPET_CHARS = 300
 
-# ===== 网页抓取常量(2000 字符截断与文件工具约定一致) =====
-_MAX_PAGE_CHARS = 2000
+# ===== 网页抓取常量(返回文本截断上限经 text_result_limit() 动态读取) =====
 _MAX_PAGE_BYTES = 2_000_000  # 超过 2MB 的响应直接拒绝,避免下载超大文件
 _FETCH_TIMEOUT = 15.0
 _USER_AGENT = "Mozilla/5.0 (compatible; xAgent/1.0; fetchWebpage)"
 
-# ===== fetcheb(curl + trafilatura)常量 =====
+# ===== fetchArticle(curl + trafilatura)常量 =====
 _CURL_TIMEOUT = 30  # curl --max-time(秒);另加缓冲作为 subprocess 整体超时
 
 
@@ -174,34 +205,64 @@ def fetch_webpage(arguments: dict[str, Any]) -> str:
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return "参数错误:url 必须是以 http:// 或 https:// 开头的完整网址"
 
+    # 手动跟随重定向,每一跳都重新做 SSRF 检查,防止重定向绕过
     try:
-        resp = requests.get(
-            url,
-            headers={"User-Agent": _USER_AGENT},
-            timeout=_FETCH_TIMEOUT,
-            allow_redirects=True,
-        )
+        resp = None
+        current = url
+        for _hop in range(6):
+            blocked = _ssrf_blocked(current)
+            if blocked:
+                return blocked
+            resp = requests.get(
+                current,
+                headers={"User-Agent": _USER_AGENT},
+                timeout=_FETCH_TIMEOUT,
+                allow_redirects=False,
+                stream=True,
+            )
+            if resp.is_redirect:
+                current = urljoin(current, resp.headers.get("Location", ""))
+                continue
+            break
+        else:
+            return "网页请求失败:重定向次数过多(超过 5 跳)"
     except requests.RequestException as exc:
         return f"网络请求失败: {exc}"
 
     if resp.status_code != 200:
         return f"网页请求失败:HTTP 状态码 {resp.status_code}"
-    if len(resp.content) > _MAX_PAGE_BYTES:
-        return f"网页内容过大({len(resp.content)} 字节),已拒绝获取"
+
+    # 流式累计下载,超限立即中断,不让大页面整文件进内存
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        for chunk in resp.iter_content(chunk_size=65536):
+            total += len(chunk)
+            if total > _MAX_PAGE_BYTES:
+                return f"网页内容过大(超过 {_MAX_PAGE_BYTES} 字节),已中断下载"
+            chunks.append(chunk)
+    finally:
+        resp.close()
+    raw = b"".join(chunks)
 
     # 无 charset 或误判为 latin-1 时用内容嗅探修正,避免中文乱码
-    if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
-        resp.encoding = resp.apparent_encoding or "utf-8"
+    encoding = resp.encoding
+    if not encoding or encoding.lower() == "iso-8859-1":
+        encoding = resp.apparent_encoding or "utf-8"
+    try:
+        page_text = raw.decode(encoding, errors="replace")
+    except LookupError:
+        page_text = raw.decode("utf-8", errors="replace")
 
     content_type = resp.headers.get("Content-Type", "").lower()
-    is_html = "html" in content_type or "<html" in resp.text[:1000].lower()
+    is_html = "html" in content_type or "<html" in page_text[:1000].lower()
     if not is_html and not content_type.startswith("text/"):
         return f"不支持获取的内容类型({content_type or '未知'}),仅支持网页或纯文本"
 
     if is_html:
         extractor = _TextExtractor()
         try:
-            extractor.feed(resp.text)
+            extractor.feed(page_text)
             extractor.close()
         except Exception:
             pass  # 容错:畸形 HTML 也尽量输出已提取的部分
@@ -211,14 +272,14 @@ def fetch_webpage(arguments: dict[str, Any]) -> str:
             body = "(未提取到正文内容)"
         content = header + body
     else:
-        content = resp.text
+        content = page_text
 
-    if len(content) > _MAX_PAGE_CHARS:
-        content = content[:_MAX_PAGE_CHARS] + "\n...(内容已截断,超过2000字符)"
+    if len(content) > (limit := text_result_limit()):
+        content = content[:limit] + f"\n...(内容已截断,超过{limit}字符)"
     return content
 
 
-# ===== fetcheb(curl 抓取 + trafilatura 正文提取) =====
+# ===== fetchArticle(curl 抓取 + trafilatura 正文提取) =====
 
 def fetch_eb(arguments: dict[str, Any]) -> str:
     """获取网页主要内容:curl 抓取 HTML,trafilatura 提取正文并转为 Markdown。
@@ -232,13 +293,18 @@ def fetch_eb(arguments: dict[str, Any]) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return "参数错误:url 必须是以 http:// 或 https:// 开头的完整网址"
+    blocked = _ssrf_blocked(url)
+    if blocked:
+        return blocked
 
     # 1) 参数列表方式调用本地 curl(不使用 shell=True,无转义/注入问题);
-    #    -f: HTTP >= 400 时以非零码失败; -L: 跟随重定向; --: 防止 URL 被误认为选项
+    #    -f: HTTP >= 400 时以非零码失败; -L: 跟随重定向(上限 5 跳); --: 防止 URL 被误认为选项;
+    #    --write-out: 在输出末尾追加最终生效 URL,用于重定向后的 SSRF 终点复检
     command = [
-        "curl", "-sS", "-f", "-L", "--compressed",
+        "curl", "-sS", "-f", "-L", "--compressed", "--max-redirs", "5",
         "--max-time", str(_CURL_TIMEOUT),
         "-A", _USER_AGENT,
+        "--write-out", "\n<<EFFECTIVE>>%{url_effective}",
         "--", url,
     ]
     try:
@@ -261,7 +327,14 @@ def fetch_eb(arguments: dict[str, Any]) -> str:
         detail = stderr_lines[-1] if stderr_lines else f"curl 退出码 {completed.returncode}"
         return f"网页请求失败: {detail}"
 
-    html = completed.stdout or ""
+    # 1.5) 重定向终点 SSRF 复检:剥离 --write-out 追加的生效 URL,越界则丢弃全部内容
+    html, effective = completed.stdout or "", ""
+    if "<<EFFECTIVE>>" in html:
+        html, _, effective = html.rpartition("<<EFFECTIVE>>")
+        effective = effective.strip()
+        redirect_blocked = _ssrf_blocked(effective) if effective else None
+        if redirect_blocked:
+            return redirect_blocked
     if not html.strip():
         return "网页请求失败:服务器返回空内容"
     if len(html) > _MAX_PAGE_BYTES:
@@ -290,8 +363,8 @@ def fetch_eb(arguments: dict[str, Any]) -> str:
         return "正文提取失败:未能从该网页中识别出主要内容(可能是纯脚本渲染页或非文章页)"
 
     markdown = markdown.strip()
-    if len(markdown) > _MAX_PAGE_CHARS:
-        markdown = markdown[:_MAX_PAGE_CHARS] + "\n...(内容已截断,超过2000字符)"
+    if len(markdown) > (limit := text_result_limit()):
+        markdown = markdown[:limit] + f"\n...(内容已截断,超过{limit}字符)"
     return f"{url}\n\n{markdown}"
 
 
@@ -305,6 +378,8 @@ def register(registry: ToolRegistry, search_config: "SearchConfig | None" = None
             description=(
                 "联网搜索工具:根据关键词或问题搜索互联网最新信息,返回搜索摘要、"
                 "参考来源的标题及 URL。回答时效性问题(新闻、天气、价格、版本等)时使用。"
+                "仅用于查询互联网公开信息,不要用本地文件路径作为关键词查找本地文件;"
+                "查找本地文件请用 listDir/getFileType。"
             ),
             parameters={
                 "type": "object",
@@ -345,7 +420,7 @@ def register(registry: ToolRegistry, search_config: "SearchConfig | None" = None
     )
     registry.register(
         ToolSpec(
-            name="fetcheb",
+            name="fetchArticle",
             description=(
                 "获取指定网页的主要内容:自动去除导航栏、广告、页脚等无关内容,"
                 "以 Markdown 格式返回正文(保留标题、段落、列表、表格及链接,超 2000 字符截断)。"

@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .registry import ToolRegistry, ToolSpec
+from .registry import ToolRegistry, ToolSpec, text_result_limit
 
 # 纯文本扩展名白名单,用于 readFile / writeFile 校验
 _TEXT_EXTS = {
@@ -17,9 +17,6 @@ _TEXT_EXTS = {
     ".css", ".js", ".ini", ".yml", ".yaml", ".log", ".cfg",
     ".xml", ".rtf", ".properties", ".toml",
 }
-
-# 单次读取的最大字符数,避免超长内容撑爆对话上下文
-_MAX_READ_CHARS = 2000
 
 
 def get_cwd(_: dict[str, Any]) -> str:
@@ -59,13 +56,40 @@ def read_file(arguments: dict[str, Any]) -> str:
         return f"路径是目录而非文件: {path}"
     if target.suffix.lower() not in _TEXT_EXTS:
         return f"不支持读取该文件类型({target.suffix}),仅支持纯文本文件"
+    # 单次读取的最大字符数,避免超长内容撑爆对话上下文(上限来自 [tools] 配置)
+    limit = text_result_limit()
     try:
-        content = target.read_text(encoding="utf-8")
+        # 增量读取:最多读上限+1 字符,超大文件不会整文件进内存
+        with target.open("r", encoding="utf-8") as fh:
+            content = fh.read(limit + 1)
     except UnicodeDecodeError:
         return "文件编码非 UTF-8,无法以纯文本方式读取"
-    if len(content) > _MAX_READ_CHARS:
-        content = content[:_MAX_READ_CHARS] + "\n...(内容已截断,超过2000字符)"
+    if len(content) > limit:
+        content = content[:limit] + f"\n...(内容已截断,超过{limit}字符)"
     return content
+
+
+def _delete_roots() -> list[Path]:
+    """删除类操作允许的根目录:启动工作区 + 环境变量追加项(分号分隔)。"""
+    roots = [Path.cwd().resolve()]
+    extra = os.environ.get("XAGENT_DELETE_ROOTS", "")
+    roots.extend(Path(p.strip()).resolve() for p in extra.split(";") if p.strip())
+    return roots
+
+
+def _delete_blocked(path: Path) -> str | None:
+    """返回拒绝删除的原因;None 表示允许。系统目录不在白名单内,天然被拒。"""
+    resolved = path.resolve()
+    if resolved == Path(resolved.anchor):
+        return "安全限制:不允许删除盘符根目录"
+    roots = _delete_roots()
+    if any(resolved == root or root in resolved.parents for root in roots):
+        return None
+    return (
+        "安全限制:仅允许删除工作区内的路径("
+        + "; ".join(str(r) for r in roots)
+        + ")。如需其他位置,请设置环境变量 XAGENT_DELETE_ROOTS(分号分隔)"
+    )
 
 
 def create_file(arguments: dict[str, Any]) -> str:
@@ -77,7 +101,16 @@ def create_file(arguments: dict[str, Any]) -> str:
         return f"目录不存在: {dir_path}"
     if not dir_target.is_dir():
         return f"路径不是目录: {dir_path}"
+    if Path(filename).name != filename or ":" in filename or not filename.strip("."):
+        return (
+            "非法文件名: filename 只能是纯文件名,不能包含路径分隔符、"
+            "盘符或全为点号(防目录逃逸)"
+        )
     file_path = dir_target / filename
+    try:
+        file_path.resolve().relative_to(dir_target.resolve())
+    except ValueError:
+        return f"安全限制:解析后的路径越出了目标目录: {filename}"
     if file_path.exists():
         return f"文件已存在: {file_path}"
     file_path.write_text(content, encoding="utf-8")
@@ -114,6 +147,9 @@ def remove_dir(arguments: dict[str, Any]) -> str:
         return f"目录不存在: {path}"
     if not target.is_dir():
         return f"路径不是目录: {path}"
+    blocked = _delete_blocked(target)
+    if blocked:
+        return blocked
     shutil.rmtree(target)
     return f"已删除目录及其全部内容: {path}"
 
@@ -125,6 +161,9 @@ def remove_file(arguments: dict[str, Any]) -> str:
         return f"文件不存在: {path}"
     if target.is_dir():
         return f"路径是目录而非文件,请用 removeDir: {path}"
+    blocked = _delete_blocked(target)
+    if blocked:
+        return blocked
     target.unlink()
     return f"已删除文件: {path}"
 
@@ -192,7 +231,7 @@ def register(registry: ToolRegistry) -> None:
         ),
         ToolSpec(
             name="createFile",
-            description="在指定目录下创建一个新的纯文本文件。",
+            description="在指定目录下创建一个新的纯文本文件。新建文件用本工具;修改已有文件用 writeFile。注意 .docx/.xlsx 等二进制文档不能用本工具,应改用 officecli(RunCli)。",
             parameters={
                 "type": "object",
                 "properties": {
@@ -215,7 +254,7 @@ def register(registry: ToolRegistry) -> None:
         ),
         ToolSpec(
             name="writeFile",
-            description="覆盖写入指定纯文本文件的内容。仅支持纯文本格式文件。",
+            description="覆盖写入指定的纯文本文件。仅支持纯文本格式;文件必须已存在,不存在会报错。新建文件请用 createFile。",
             parameters={
                 "type": "object",
                 "properties": {

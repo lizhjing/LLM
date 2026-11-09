@@ -10,9 +10,10 @@ import json
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Input, Static
+from textual.widgets import Button, DataTable, Footer, Input, OptionList, Static
+from textual.widgets.option_list import Option
 
 from core.agent import Agent
 
@@ -412,6 +413,8 @@ class RunToolScreen(ModalScreen):
         self.app.call_from_thread(self._show_result, args, result)
 
     def _show_result(self, args: dict, result: str) -> None:
+        if not self.is_attached:
+            return  # 面板已被 Esc 关闭,回调无处渲染,直接放弃
         args_text = json.dumps(args, ensure_ascii=False)
         self.query_one("#run-result", Static).update(
             f"参数: {args_text}\n\n执行结果:\n{result}"
@@ -445,3 +448,201 @@ def _parse_value(ptype: str, raw: str):
     if ptype in ("array", "object"):
         return json.loads(raw)  # JSON 数组/对象,解析失败时报错给用户
     return raw
+
+
+class ResumeScreen(ModalScreen):
+    """历史会话选择面板:上下键选择,回车恢复,Esc 取消。"""
+
+    BINDINGS = [("escape", "cancel_resume", "取消")]
+
+    CSS = """
+    ResumeScreen {
+        align: center middle;
+    }
+
+    #resume-panel {
+        width: 72%;
+        max-width: 76;
+        height: auto;
+        max-height: 72%;
+        background: $surface;
+        border: round $accent;
+        padding: 0 1;
+    }
+
+    #resume-title {
+        width: 100%;
+        padding: 1 1;
+        background: $boost;
+        text-style: bold;
+    }
+
+    #resume-list {
+        width: 100%;
+        height: auto;
+        max-height: 16;
+    }
+
+    #resume-hint {
+        width: 100%;
+        padding: 0 1 1 1;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, items: list[tuple[str, str]], on_select) -> None:
+        """items 为 (会话名, 保存时间) 列表;on_select(name) 在选中时回调。"""
+        super().__init__()
+        self._items = items
+        self._on_select = on_select
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="resume-panel"):
+            yield Static(f"历史会话({len(self._items)} 个)", id="resume-title")
+            yield OptionList(id="resume-list")
+            yield Static("↑/↓ 选择 · Enter 恢复 · Esc 取消", id="resume-hint")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        listing = self.query_one("#resume-list", OptionList)
+        for name, saved_at in self._items:
+            listing.add_option(Option(f"{name}  ({saved_at})", id=name))
+        listing.focus()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option.id is not None:
+            self.dismiss()
+            self._on_select(str(event.option.id))
+
+    def action_cancel_resume(self) -> None:
+        self.dismiss()
+
+
+class FirstRunScreen(ModalScreen):
+    """首次运行引导对话框:config.ini 缺失已自动生成 mock 配置时提示。"""
+
+    BINDINGS = [("escape", "continue_run", "继续运行")]
+
+    CSS = """
+    FirstRunScreen {
+        align: center middle;
+    }
+
+    #firstrun-panel {
+        width: 82%;
+        max-width: 80;
+        height: auto;
+        background: $surface;
+        border: round $warning;
+        padding: 1 2;
+    }
+
+    #firstrun-title {
+        width: 100%;
+        text-style: bold;
+        color: $warning;
+        padding-bottom: 1;
+    }
+
+    #firstrun-text {
+        width: 100%;
+        color: $text;
+        padding-bottom: 1;
+    }
+
+    #firstrun-buttons {
+        width: 100%;
+        height: auto;
+        align-horizontal: center;
+    }
+
+    #firstrun-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, config_path) -> None:
+        super().__init__()
+        self._config_path = str(config_path)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="firstrun-panel"):
+            yield Static("首次运行:已自动生成默认配置", id="firstrun-title")
+            yield Static(
+                "未检测到 config.ini,已在以下位置自动生成一份包含示例(mock)配置的模板:\n\n"
+                f"  {self._config_path}\n\n"
+                "请编辑该文件,填入你的真实 API Key 与模型等配置,然后重启 xAgent。\n"
+                "在完成修改并重启之前,LLM 调用将无法正常工作。",
+                id="firstrun-text",
+                markup=False,
+            )
+            with Horizontal(id="firstrun-buttons"):
+                yield Button("退出,修改后重启", id="firstrun-restart", variant="primary")
+                yield Button("仍要继续运行", id="firstrun-continue", variant="default")
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "firstrun-restart":
+            self.app.exit()
+        else:
+            self.dismiss()
+
+    def action_continue_run(self) -> None:
+        self.dismiss()
+
+
+class MCPScreen(ModalScreen):
+    """MCP 服务器状态面板:展示已连接服务器及各自可用工具。"""
+
+    BINDINGS = [("escape", "dismiss_panel", "返回")]
+
+    CSS = """
+    MCPScreen {
+        align: center middle;
+    }
+
+    #mcp-panel {
+        width: 86%;
+        height: 80%;
+        background: $surface;
+        border: round $accent;
+        padding: 0 1;
+    }
+
+    #mcp-title {
+        width: 100%;
+        padding: 1 1;
+        background: $boost;
+        text-style: bold;
+    }
+
+    #mcp-detail {
+        width: 100%;
+        height: 1fr;
+        padding: 1 2;
+        color: $text;
+    }
+
+    #mcp-hint {
+        width: 100%;
+        padding: 0 1 1 1;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, title: str, content: str) -> None:
+        super().__init__()
+        self._title = title
+        self._content = content
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="mcp-panel"):
+            yield Static(self._title, id="mcp-title")
+            yield VerticalScroll(
+                Static(self._content, id="mcp-detail", markup=False)
+            )
+            yield Static("Esc 返回", id="mcp-hint")
+        yield Footer()
+
+    def action_dismiss_panel(self) -> None:
+        self.dismiss()

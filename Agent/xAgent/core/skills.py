@@ -10,8 +10,10 @@ frontmatter 解析使用标准库实现,支持单行值与 | / > 块标量,满�
 写法;不做完整 YAML 解析以保持零依赖。
 """
 
+import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -91,57 +93,118 @@ def _is_inside(path: Path, directory: Path) -> bool:
         return False
 
 
+def name_problem(name: str) -> str | None:
+    """校验 Skill name 是否符合规范;不合规时返回原因,合规返回 None。"""
+    if not name:
+        return "缺少必需字段 name"
+    if len(name) > _MAX_NAME_LEN or not _NAME_PATTERN.match(name):
+        return f"name '{name}' 不符合规范(小写字母/数字/连字符,最长 {_MAX_NAME_LEN})"
+    return None
+
+
+def _attachment_problem(filename: str, index: int) -> str | None:
+    """校验 Skill 附件的相对路径;非法时返回错误说明。
+
+    仅允许 Skill 目录内的相对路径(可含子目录),拒绝绝对路径、
+    盘符/根符号、`..` 回溯与空路径,防止越界写入。
+    """
+    if not filename:
+        return f"参数错误:第 {index} 个附件缺少 filename"
+    candidate = Path(filename)
+    if (
+        candidate.is_absolute()
+        or candidate.drive
+        or candidate.root
+        or not candidate.parts
+        or ".." in candidate.parts
+        or candidate.name in (".", "..")
+    ):
+        return (
+            f"参数错误:第 {index} 个附件路径不合法('{filename}'),"
+            "只能是 Skill 目录内的相对路径,如 'assets/template.md'"
+        )
+    return None
+
+
 class SkillRegistry:
     """Skill 注册表:启动时扫描元信息,运行期按需加载正文与附加文件。"""
 
     def __init__(self) -> None:
         self._skills: dict[str, SkillMeta] = {}
+        self._version = 0  # 注册表变化计数,Agent 据此重建 system 消息
         # 扫描期发现的无效 Skill 及原因,由入口层在启动时提示
         self.problems: list[str] = []
         # 项目根目录,用于解析"项目相对路径"形式的附加文件;scan 时推定
         self._project_root: Path | None = None
+        # Skill 根目录列表(.agents/skills),scan 时记录;首个为 createSkill 落盘目标
+        self._skills_dirs: tuple[Path, ...] = ()
+
+    @property
+    def version(self) -> int:
+        """注册表版本号:每次 rescan(含 createSkill 落盘)自增。"""
+        return self._version
+
+    @property
+    def _skills_dir(self) -> Path | None:
+        """首个 Skill 根目录(createSkill 的落盘目标)。"""
+        return self._skills_dirs[0] if self._skills_dirs else None
 
     @classmethod
-    def scan(cls, skills_dir: Path) -> "SkillRegistry":
-        """扫描 skills_dir 下的一级子目录,仅加载各 SKILL.md 的元信息。
+    def scan(cls, *skills_dirs: Path) -> "SkillRegistry":
+        """扫描各 skills_dir 下的一级子目录,合并为一个注册表。
 
-        目录不存在属于正常情况(未使用 Skill 功能),返回空注册表。
+        多目录时先到先得:同名 Skill 以靠前目录为准(启动工作目录可覆盖
+        程序目录的内置 Skill);首个目录同时是 createSkill 的落盘目标。
+        目录不存在属于正常情况(未使用 Skill 功能),静默跳过。
         """
         registry = cls()
-        if not skills_dir.is_dir():
-            return registry
+        registry._skills_dirs = tuple(Path(d) for d in skills_dirs)
+        for skills_dir in registry._skills_dirs:
+            registry._scan_one(skills_dir)
+        return registry
 
-        # 推定项目根目录:标准布局为 <root>/.agents/skills/
-        registry._project_root = (
-            skills_dir.parent.parent
-            if skills_dir.parent.name == ".agents"
-            else skills_dir.parent
-        )
+    def _scan_one(self, skills_dir: Path) -> None:
+        """扫描单个 Skill 目录并合并进当前注册表(已有同名条目不覆盖)。"""
+        if not skills_dir.is_dir():
+            return
+
+        # 推定项目根目录:标准布局为 <root>/.agents/skills/(取首个扫描目录)
+        if self._project_root is None:
+            self._project_root = (
+                skills_dir.parent.parent
+                if skills_dir.parent.name == ".agents"
+                else skills_dir.parent
+            )
 
         for child in sorted(skills_dir.iterdir()):
             if not child.is_dir():
                 continue  # 只认 Skill 子目录,忽略散落文件
             skill_md = child / "SKILL.md"
             if not skill_md.is_file():
-                registry.problems.append(f"跳过 {child.name}/: 缺少 SKILL.md")
+                self.problems.append(f"跳过 {child.name}/: 缺少 SKILL.md")
                 continue
 
             try:
                 text = skill_md.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as exc:
-                registry.problems.append(f"跳过 {child.name}/: SKILL.md 读取失败({exc})")
+                self.problems.append(f"跳过 {child.name}/: SKILL.md 读取失败({exc})")
                 continue
 
-            meta = registry._parse_meta(text, skill_md, child.name)
+            meta = self._parse_meta(text, skill_md, child.name)
             if meta is None:
                 continue
             if meta.name != child.name:
-                registry.problems.append(
+                self.problems.append(
                     f"跳过 {child.name}/: name 字段 '{meta.name}' 与目录名不一致"
                 )
                 continue
-            registry._skills[meta.name] = meta
-        return registry
+            if meta.name in self._skills:  # 多目录合并:先到先得
+                self.problems.append(
+                    f"提示: Skill '{meta.name}' 存在多份,当前生效 {self._skills[meta.name].path.parent}"
+                    f"(靠前扫描目录优先,{skills_dir} 中的同名版本被忽略)"
+                )
+                continue
+            self._skills[meta.name] = meta
 
     # ===== 查询接口 =====
 
@@ -248,6 +311,105 @@ class SkillRegistry:
 
         return self._read_text_file(resolved, skill_dir)
 
+    # ===== 创建接口(createSkill 工具使用)=====
+
+    def rescan(self) -> None:
+        """重新扫描 Skill 根目录并原地更新注册表。
+
+        createSkill 落盘后调用,使新 Skill 立即可被 loadSkill 加载;
+        版本号自增后,Agent 在下一轮对话开始时自动重建 system 消息。
+        """
+        if not self._skills_dirs:
+            return
+        fresh = SkillRegistry.scan(*self._skills_dirs)
+        self._skills = fresh._skills
+        self.problems = fresh.problems
+        self._project_root = fresh._project_root
+        self._version += 1
+
+    def create_skill(
+        self,
+        name: str,
+        description: str,
+        body: str,
+        attachments: list[tuple[str, str]] | None = None,
+    ) -> str:
+        """在 Skill 根目录下创建新 Skill:<skills_dir>/<name>/SKILL.md + 附件。
+
+        name 同时作为子目录名(小写英文/数字/连字符);SKILL.md 头部自动生成
+        YAML Frontmatter,description 以 JSON 风格双引号书写以兼容标准 YAML。
+        任一附件路径非法或写入失败都不会留下半成品目录;成功后 rescan 使
+        新 Skill 即时可用。返回结果文本(成功清单或失败原因)。
+        """
+        skills_dir = self._skills_dir or Path.cwd() / ".agents" / "skills"
+        name = (name or "").strip()
+        if problem := name_problem(name):
+            return (
+                f"参数错误:{problem};name 同时作为目录名,"
+                "请使用小写英文/数字与连字符,如 'code-review'"
+            )
+        description = " ".join((description or "").split())
+        if not description:
+            return "参数错误:description 不能为空,请一句话说明技能的用途与适用场景"
+        description_truncated = len(description) > _MAX_DESC_LEN
+        if description_truncated:
+            description = description[:_MAX_DESC_LEN]
+        body_text = (body or "").strip()
+        if not body_text:
+            return "参数错误:content(SKILL.md 正文)不能为空,请提供可执行的操作指引"
+
+        skill_dir = skills_dir / name
+        if skill_dir.exists():
+            return f"创建失败:同名 Skill 已存在({skill_dir}),请更换 name 或先删除旧目录"
+
+        # 先整体校验附件再落盘,任何一项非法都直接失败,不留下无效 Skill
+        prepared: list[tuple[Path, str]] = []
+        seen: set[str] = set()
+        for index, (filename, content) in enumerate(attachments or [], start=1):
+            filename = (filename or "").strip().replace("\\", "/")
+            if problem := _attachment_problem(filename, index):
+                return problem
+            normalized = Path(filename).as_posix()
+            if normalized == "SKILL.md":
+                return "参数错误:附件不能命名为 SKILL.md(该文件由 name/description/content 自动生成)"
+            if normalized in seen:
+                return f"参数错误:第 {index} 个附件与之前的文件名重复('{normalized}')"
+            seen.add(normalized)
+            prepared.append((skill_dir / normalized, content))
+
+        try:
+            skill_dir.mkdir(parents=True, exist_ok=False)
+            frontmatter = (
+                f"---\nname: {name}\n"
+                f"description: {json.dumps(description, ensure_ascii=False)}\n---"
+            )
+            (skill_dir / "SKILL.md").write_text(
+                f"{frontmatter}\n\n{body_text}\n", encoding="utf-8"
+            )
+            for target, content in prepared:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            shutil.rmtree(skill_dir, ignore_errors=True)  # 清理半成品,避免无效 Skill
+            return f"创建失败:文件写入出错({exc})"
+
+        self.rescan()
+        lines = [
+            f"Skill「{name}」创建成功:",
+            f"- 目录: {skill_dir}",
+            f"- SKILL.md: frontmatter 已生成,正文 {len(body_text)} 字符",
+        ]
+        if prepared:
+            names = ", ".join(t.relative_to(skill_dir).as_posix() for t, _ in prepared)
+            lines.append(f"- 附件 {len(prepared)} 个: {names}")
+        if description_truncated:
+            lines.append(f"- 注意:description 超过 {_MAX_DESC_LEN} 字符,已截断")
+        lines.append(
+            "新 Skill 已即时注册,可通过 loadSkill 加载;"
+            "重启 xAgent 后会出现在系统提示的技能列表中。"
+        )
+        return "\n".join(lines)
+
     # ===== 内部实现 =====
 
     def _unknown_skill_message(self, name: str) -> str:
@@ -283,13 +445,8 @@ class SkillRegistry:
 
         name = fields.get("name", "").strip()
         description = fields.get("description", "").strip()
-        if not name:
-            self.problems.append(f"跳过 {dir_name}/: 缺少必需字段 name")
-            return None
-        if len(name) > _MAX_NAME_LEN or not _NAME_PATTERN.match(name):
-            self.problems.append(
-                f"跳过 {dir_name}/: name '{name}' 不符合规范(小写字母/数字/连字符,最长 {_MAX_NAME_LEN})"
-            )
+        if problem := name_problem(name):
+            self.problems.append(f"跳过 {dir_name}/: {problem}")
             return None
         if not description:
             self.problems.append(f"跳过 {dir_name}/: 缺少必需字段 description")

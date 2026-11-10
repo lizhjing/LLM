@@ -90,6 +90,7 @@ chars_per_token = 3
 search_results = 6
 snippet_len = 240
 agents_md_max_chars = 32768
+agents_md_name = AGENTS.md
 
 [tools]
 result_limit = 2000
@@ -237,6 +238,7 @@ class AgentConfig:
     search_results: int = 6         # recallContext 检索最多返回条数
     snippet_len: int = 240          # recallContext 单条命中片段最大长度
     agents_md_max_chars: int = 32768  # AGENTS.md 注入上下文的最大字符数
+    agents_md_name: str = "AGENTS.md"  # 项目说明文件名(默认 AGENTS.md,可配置)
 
 
 @dataclass(frozen=True)
@@ -325,6 +327,7 @@ class AppConfig:
             search_results=cfg.getint("agent", "search_results", fallback=6),
             snippet_len=cfg.getint("agent", "snippet_len", fallback=240),
             agents_md_max_chars=cfg.getint("agent", "agents_md_max_chars", fallback=32768),
+            agents_md_name=cfg.get("agent", "agents_md_name", fallback="AGENTS.md"),
         )
         tools = ToolsConfig(
             result_limit=cfg.getint("tools", "result_limit", fallback=2000),

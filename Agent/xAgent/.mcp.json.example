@@ -1,0 +1,17 @@
+{
+  "_说明": "MCP Server 清单模板：复制为 .mcp.json 放在 xAgent 启动目录。每个条目按 type 二选一；密钥用环境变量注入，不要写明文。",
+  "mcpServers": {
+    "本地示例-stdio": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "your_mcp_server"],
+      "env": {
+        "YOUR_SERVER_API_KEY": "your-api-key-here"
+      }
+    },
+    "远程示例-http": {
+      "type": "streamable_http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}

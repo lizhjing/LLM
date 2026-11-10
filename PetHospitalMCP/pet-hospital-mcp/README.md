@@ -4,7 +4,7 @@
 
 本服务本身**不存储任何业务数据**，唯一业务后端是仓库根目录的 Go 服务，MCP 服务仅通过 HTTP 调用它。
 
-> 本阶段只提供 **一个工具：`list_pets`**。未实现任何阶段二工具（新增/修改病历等写操作均不支持）。
+> 本阶段提供 **两个只读工具：`list_pets`（分页检索）与 `get_pet`（按 id 取单条）**。写操作（新增/修改病历等）均不支持。
 
 ## 技术事实（实际版本）
 
@@ -107,11 +107,11 @@ curl http://127.0.0.1:8000/health
 
 该端点只反映 MCP 进程自身状态，不会调用上游 Go 服务。
 
-## 4. 工具：`list_pets`
+## 4. 工具：`list_pets` 与 `get_pet`
 
-分页查询宠物档案，严格对应 `GET /api/v1/pets`。
+`list_pets` 分页检索，对应 `GET /api/v1/pets`；`get_pet` 按 id 取单条，对应 `GET /api/v1/pets/{id}`，返回一个 Pet 对象。
 
-### 参数（全部可选）
+### `list_pets` 参数（全部可选）
 
 | 参数 | 类型 / 允许值 | 说明 |
 | --- | --- | --- |
@@ -132,7 +132,7 @@ curl http://127.0.0.1:8000/health
 
 拒绝：未知字段、错误类型、越界值、`NaN`/`Infinity`。
 
-### 成功返回（即 Go 响应的 `data`）
+### `list_pets` 成功返回（即 Go 响应的 `data`）
 
 ```json
 {
@@ -156,6 +156,15 @@ curl http://127.0.0.1:8000/health
 
 `items` 中每个宠物的 `records` / `charges` 兼容 Go 的真实 JSON 表现：
 可能是 `null`（无病历/消费），也可能是数组。
+
+### `get_pet` 参数与返回
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `pet_id` | string，必填 | 宠物档案 ID（如 `PET-000001`） |
+
+成功时 `structuredContent` 即 Go Pet 对象（含完整 `records`、`charges`）。
+已知 id 时用 `get_pet` 比 `list_pets` 更精确。
 
 ### 错误返回（统一结构，`isError=true`）
 
@@ -250,7 +259,7 @@ pytest -q
 - 上游非法 JSON / 非对象 / 数据模型不匹配；
 - 工具注册、工具名（snake_case）与 JSON Schema（枚举、范围、`additionalProperties:false`）；
 - SDK 2.x 无状态连接：不发送 `initialize`、无 `Mcp-Session-Id`、
-  `server/discover` + 2026-07-28 头、经 HTTP 发现与调用 `list_pets`；
+  `server/discover` + 2026-07-28 头、经 HTTP 发现与调用 `list_pets` / `get_pet`；
 - `/health` 端点。
 
 ## 目录结构
@@ -259,7 +268,7 @@ pytest -q
 pet-hospital-mcp/
 ├── pyproject.toml
 ├── README.md
-├── UPGRADE_PROMPT.md
+├── UPGRADE_PROMPT.md    # AI 生成的迁移提示词，不是运行依赖
 ├── src/
 │   └── pet_hospital_mcp/
 │       ├── __init__.py
@@ -271,7 +280,8 @@ pet-hospital-mcp/
 │       ├── logging_config.py
 │       └── tools/
 │           ├── __init__.py
-│           └── list_pets.py
+│           ├── list_pets.py
+│           └── get_pet.py
 └── tests/
     ├── conftest.py
     ├── test_rest_client.py

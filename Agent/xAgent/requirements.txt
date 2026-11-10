@@ -1,0 +1,4 @@
+textual>=0.80.0
+requests>=2.31.0
+mcp>=2.0.0
+trafilatura>=1.8.0  # 可选，仅 fetchArticle 需要

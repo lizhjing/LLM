@@ -22,19 +22,25 @@ def _non_null(schema: dict) -> dict:
     return schema
 
 
-async def test_exactly_one_tool_registered(mcp_server) -> None:
+async def test_two_tools_registered(mcp_server) -> None:
     tools = await mcp_server.list_tools()
-    assert len(tools) == 1
-    tool = tools[0]
-    assert tool.name == "list_pets"
-    assert re.fullmatch(r"[a-z][a-z0-9_]*", tool.name)  # snake_case
-    assert tool.description
-    for keyword in ("用途", "参数", "适用场景", "返回值"):
-        assert keyword in tool.description
+    assert len(tools) == 2
+    by_name = {t.name: t for t in tools}
+    assert set(by_name) == {"list_pets", "get_pet"}
+    for name, tool in by_name.items():
+        assert re.fullmatch(r"[a-z][a-z0-9_]*", name)  # snake_case
+        assert tool.description
+        for keyword in ("用途", "参数", "适用场景", "返回值"):
+            assert keyword in tool.description
+
+
+async def _list_pets_tool(mcp_server):
+    by_name = {t.name: t for t in await mcp_server.list_tools()}
+    return by_name["list_pets"]
 
 
 async def test_input_schema_properties_and_required(mcp_server) -> None:
-    tool = (await mcp_server.list_tools())[0]
+    tool = await _list_pets_tool(mcp_server)
     schema = tool.input_schema
     assert schema["type"] == "object"
     # 14 个参数，一个不多一个不少
@@ -46,7 +52,7 @@ async def test_input_schema_properties_and_required(mcp_server) -> None:
 
 
 async def test_input_schema_enums(mcp_server) -> None:
-    props = (await mcp_server.list_tools())[0].input_schema["properties"]
+    props = (await _list_pets_tool(mcp_server)).input_schema["properties"]
     assert _non_null(props["species"])["type"] == "string"
     assert _non_null(props["species"])["enum"] == list(SPECIES_VALUES)
     assert _non_null(props["status"])["enum"] == list(STATUS_VALUES)
@@ -55,7 +61,7 @@ async def test_input_schema_enums(mcp_server) -> None:
 
 
 async def test_input_schema_numeric_constraints(mcp_server) -> None:
-    props = (await mcp_server.list_tools())[0].input_schema["properties"]
+    props = (await _list_pets_tool(mcp_server)).input_schema["properties"]
     page = _non_null(props["page"])
     assert page["type"] == "integer"
     assert page["minimum"] == 1

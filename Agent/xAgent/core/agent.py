@@ -61,13 +61,18 @@ class Agent:
         self._system_message = self._build_system_message(skills)
         if self._system_message is not None:
             self._messages.append(self._system_message)
-        # 项目说明(AGENTS.md):一次注入,全程复用——仅在会话建立时读取一次,
+        # 项目说明:一次注入,全程复用——仅在会话建立时读取一次,
         # 作为固定前导消息随历史持久化;reset/恢复/压缩时都会重新就位,
-        # 后续轮次直接复用同一消息,保证前缀缓存有效
+        # 后续轮次直接复用同一消息,保证前缀缓存有效。
+        # 读取顺序:显式 agents_file > 配置的 agents_md_name > AGENT.md 回退。
+        agents_path = agents_file or Path.cwd() / config.agent.agents_md_name
         self._agents_message = self._load_agents_message(
-            agents_file or Path.cwd() / "AGENTS.md",
-            config.agent.agents_md_max_chars,
+            agents_path, config.agent.agents_md_max_chars
         )
+        if self._agents_message is None and agents_path.name != "AGENT.md":
+            self._agents_message = self._load_agents_message(
+                agents_path.with_name("AGENT.md"), config.agent.agents_md_max_chars
+            )
         if self._agents_message is not None:
             self._messages.append(self._agents_message)
         # 上下文压缩状态:归档目录、Token 占用、阈值阻断与压缩进行中标记
@@ -150,14 +155,14 @@ class Agent:
         if len(content) > max_chars:
             content = (
                 content[:max_chars]
-                + f"\n\n…(AGENTS.md 过长,已截断至前 {max_chars} 字符;完整内容请直接查看文件)"
+                + f"\n\n…({path.name} 过长,已截断至前 {max_chars} 字符;完整内容请直接查看文件)"
             )
         return {
             "role": "system",
             "content": (
-                "【项目说明(AGENTS.md)】\n\n"
+                f"【项目说明({path.name})】\n\n"
                 f"{content}\n\n"
-                "以上内容来自项目根目录的 AGENTS.md,回答与工具调用需遵守其中的约定。"
+                f"以上内容来自项目根目录的 {path.name},回答与工具调用需遵守其中的约定。"
             ),
         }
 

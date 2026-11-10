@@ -45,6 +45,7 @@ PETS_QUERY_PARAMS: tuple[str, ...] = (
 )
 
 PETS_PATH = "/api/v1/pets"
+PET_BY_ID_PATH = "/api/v1/pets/{pet_id}"
 _PARAM_ALLOWED = frozenset(PETS_QUERY_PARAMS)
 
 
@@ -215,4 +216,65 @@ class PetHospitalClient:
             return payload
 
         # 理论不可达：循环内要么返回、要么抛错
+        raise BackendUnavailableError("宠物医院后端暂时不可用。")  # pragma: no cover
+
+    async def get_pet(self, pet_id: str) -> dict[str, Any]:
+        """调用 ``GET /api/v1/pets/{id}`` 查单条档案。
+
+        Raises:
+            BackendTimeoutError / BackendUnavailableError / BackendAPIError /
+            BackendInvalidResponseError: 与 list_pets 相同的错误分类。
+        """
+        from urllib.parse import quote
+
+        path = PET_BY_ID_PATH.format(pet_id=quote(pet_id, safe=""))
+        attempts = self._max_retries + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await self._client.get(path)
+            except httpx.TimeoutException as exc:
+                if attempt < attempts:
+                    await self._sleep_before_retry(attempt)
+                    continue
+                raise BackendTimeoutError(
+                    "宠物医院后端响应超时，请稍后重试。", details={"attempts": attempt}
+                ) from exc
+            except httpx.TransportError as exc:
+                if attempt < attempts:
+                    await self._sleep_before_retry(attempt)
+                    continue
+                raise BackendUnavailableError(
+                    "无法连接宠物医院后端服务，请确认 Go 服务已启动。",
+                    details={"attempts": attempt},
+                ) from exc
+
+            if response.status_code >= 500 and attempt < attempts:
+                await self._sleep_before_retry(attempt)
+                continue
+
+            if response.is_error:
+                upstream_message = _extract_upstream_message(response)
+                details: dict[str, Any] = {"http_status": response.status_code}
+                message = f"宠物医院后端返回错误（HTTP {response.status_code}）。"
+                if upstream_message:
+                    details["upstream_message"] = upstream_message
+                    message = f"宠物医院后端返回错误：{upstream_message}"
+                raise BackendAPIError(message, details=details)
+
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise BackendInvalidResponseError(
+                    "宠物医院后端返回了无法解析的 JSON 响应。",
+                    details={"reason": "invalid_json"},
+                ) from exc
+
+            if not isinstance(payload, dict):
+                raise BackendInvalidResponseError(
+                    "宠物医院后端响应结构不符合约定（顶层不是 JSON 对象）。",
+                    details={"reason": "not_object"},
+                )
+
+            return payload
+
         raise BackendUnavailableError("宠物医院后端暂时不可用。")  # pragma: no cover

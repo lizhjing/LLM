@@ -8,6 +8,7 @@ JSON 原样保存可完整恢复;加载时由 Agent.restore_history 处理 syste
 """
 
 import json
+import os
 import re
 import time
 from datetime import datetime
@@ -57,15 +58,26 @@ class SessionStore:
     # ===== 保存与加载 =====
 
     def save(self, messages: list, name: str | None = None) -> Path:
-        """保存会话;返回落盘路径。name 为空时按时间自动命名。"""
+        """保存会话;返回落盘路径。name 为空时按时间自动命名。
+
+        采用「临时文件 + 原子替换」写入:先写同目录的 .tmp,成功后再
+        os.replace 覆盖目标。中途失败(磁盘满/进程中断)只留下 .tmp 并被清理,
+        不会出现半截 JSON 导致会话不可用。
+        """
         _validate_messages(messages)
         path = self._path_of(name or _default_name())
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
-            path.write_text(
+            tmp_path.write_text(
                 json.dumps(messages, ensure_ascii=False, indent=2), encoding="utf-8"
             )
+            os.replace(tmp_path, path)
         except OSError as exc:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
             raise SessionError(f"会话保存失败: {exc}") from exc
         return path
 

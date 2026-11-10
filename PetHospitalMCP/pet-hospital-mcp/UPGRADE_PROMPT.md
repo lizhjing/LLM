@@ -1,3 +1,6 @@
+> 本文是 AI 生成的迁移提示词，不是运行依赖。
+> 注：本文所述"唯一工具 list_pets"已过时，现另有 `get_pet` 工具，详见 README。
+
 # UPGRADE_PROMPT：从 SDK 1.x FastMCP 迁移到 SDK 2.0.0 MCPServer（无状态）
 
 > 用途：当仓库中存在基于 MCP Python SDK 1.x / FastMCP 的旧服务时，把下面这段

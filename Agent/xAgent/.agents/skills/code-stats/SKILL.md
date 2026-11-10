@@ -7,6 +7,8 @@ description: 统计当前项目的代码规模(文件数、总行数)。当用�
 
 按以下步骤完成统计,所有数据必须来自工具的真实输出,禁止编造:
 
+前提:需先设置 `XAGENT_CLI_ALLOWLIST=python` 并重启 Agent,否则 RunCli 会返回白名单拒绝。
+
 1. 使用 RunCli 工具执行一行式 Python 命令,统计当前目录下 Python 源码的
    文件数与总行数(排除 __pycache__ 目录),例如:
    - command: `python`

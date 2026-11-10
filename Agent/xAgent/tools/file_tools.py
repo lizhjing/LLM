@@ -69,12 +69,30 @@ def read_file(arguments: dict[str, Any]) -> str:
     return content
 
 
-def _delete_roots() -> list[Path]:
-    """删除类操作允许的根目录:启动工作区 + 环境变量追加项(分号分隔)。"""
+def _allowed_roots(env_name: str) -> list[Path]:
+    """返回启动工作区与指定环境变量追加的根目录(分号分隔)。"""
     roots = [Path.cwd().resolve()]
-    extra = os.environ.get("XAGENT_DELETE_ROOTS", "")
+    extra = os.environ.get(env_name, "")
     roots.extend(Path(p.strip()).resolve() for p in extra.split(";") if p.strip())
     return roots
+
+
+def _delete_roots() -> list[Path]:
+    """删除类操作允许的根目录:启动工作区 + 环境变量追加项(分号分隔)。"""
+    return _allowed_roots("XAGENT_DELETE_ROOTS")
+
+
+def _write_blocked(path: Path) -> str | None:
+    """返回拒绝写入或改名的原因;None 表示路径位于允许的工作区内。"""
+    resolved = path.resolve()
+    roots = _allowed_roots("XAGENT_WRITE_ROOTS")
+    if any(resolved == root or root in resolved.parents for root in roots):
+        return None
+    return (
+        "安全限制:仅允许写入或改名工作区内的路径("
+        + "; ".join(str(r) for r in roots)
+        + ")。如需其他位置,请设置环境变量 XAGENT_WRITE_ROOTS(分号分隔)"
+    )
 
 
 def _delete_blocked(path: Path) -> str | None:
@@ -121,6 +139,9 @@ def write_file(arguments: dict[str, Any]) -> str:
     path = arguments["path"]
     content = arguments["content"]
     target = Path(path)
+    blocked = _write_blocked(target)
+    if blocked:
+        return blocked
     if not target.exists():
         return f"文件不存在: {path}"
     if target.is_dir():
@@ -173,6 +194,9 @@ def rename_path(arguments: dict[str, Any]) -> str:
     new = arguments["new_path"]
     old_target = Path(old)
     new_target = Path(new)
+    blocked = _write_blocked(old_target) or _write_blocked(new_target)
+    if blocked:
+        return blocked
     if not old_target.exists():
         return f"原路径不存在: {old}"
     if new_target.exists():

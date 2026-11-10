@@ -6,9 +6,8 @@
 
 | 文件 | 说明 |
 |---|---|
-| `server.py` | MCP 服务器（单文件，约 50 行） |
-| `requirements.txt` | 依赖：`mcp>=2.0.0`（SDK v2，自动处理无状态、server/discover、resultType 等新规范） |
-| `.trae/mcp.json` | Trae 项目级 MCP 配置，指向 `http://127.0.0.1:8000/mcp` |
+| `server.py` | MCP 服务器（工作区问答、列举/创建工作区、文档上传与向量化） |
+| `requirements.txt` | 依赖：`mcp>=2.0.0`、`requests`（multipart 上传用） |
 
 ## 环境要求
 
@@ -41,7 +40,7 @@ python server.py
 **后台启动**（PowerShell，不占用当前终端）：
 
 ```powershell
-Start-Process -WindowStyle Hidden python -ArgumentList "server.py" -WorkingDirectory "E:\PetHostpialServer"
+Start-Process -WindowStyle Hidden python -ArgumentList "server.py" -WorkingDirectory ".\AnythingLLMMCP"
 ```
 
 服务地址：`http://127.0.0.1:8000/mcp`
@@ -60,9 +59,7 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
 
 ## MCP 客户端接入
 
-Trae 项目级配置已写在 `.trae/mcp.json`，在 Trae 的 MCP 面板中启用即可（需先启动服务器）。
-
-其他 MCP 客户端（支持 Streamable HTTP）通用配置：
+MCP 客户端（支持 Streamable HTTP）通用配置（请先启动服务器）：
 
 ```json
 {

@@ -1,7 +1,7 @@
 # MCP Server 开发计划：AnythingLLM 工作区问答
 
 ## Context
-- 目标目录 `e:\PetHostpialServer` 为空目录，全新项目
+- 目标目录为仓库内 `AnythingLLMMCP/`，全新项目
 - 需求：用 Python 开发 MCP Server（HTTP 传输，非 stdio），遵循 **2026-07-28 MCP 规范**，只实现一个功能：在本机 AnythingLLM 的**第一个工作区**提取信息回答问题
 - 约束：尽量简单、无冗余设计、不过度开发
 

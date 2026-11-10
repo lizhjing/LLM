@@ -5,11 +5,33 @@
 ;   3. 直接写在本文件(明文,不推荐提交或随产物分发)
 base_url = https://api.siliconflow.cn/v1
 api_key = your-api-key-here
-model = Qwen/Qwen3.5-4B
+model = Qwen/Qwen3-8B
 enable_thinking = false
 timeout = 120
-; 模型上下文窗口大小(tokens),用于 80% 占用告警;0 或省略 = 未知(按 128k 处理)
+; 建立连接的超时(秒)
+connect_timeout = 10
+; 模型上下文窗口大小(tokens);0 或省略 = 未知(按 128k 处理,状态栏显示「默认」)
 context_window = 0
+
+[agent]
+; Agent 编排参数
+max_tool_rounds = 12
+compact_ratio = 0.8
+chars_per_token = 3
+search_results = 6
+snippet_len = 240
+agents_md_max_chars = 32768
+agents_md_name = AGENTS.md
+
+[tools]
+result_limit = 2000
+tool_timeout = 120
+max_workers = 4
+
+[mcp]
+; MCP Server 连接参数(服务器清单见当前目录 .mcp.json)
+connect_timeout = 30
+call_timeout = 120
 
 [ui]
 typewriter_delay = 0.01
@@ -17,7 +39,7 @@ max_history = 20
 
 [search]
 ; 搜索 api_key 同样支持环境变量 XAGENT_SEARCH_API_KEY 或 --set-key search
-api_key = your-search-api-key-here
+api_key =
 base_url = https://qianfan.baidubce.com/v2/ai_search/web_search
 timeout = 30
 max_results = 10

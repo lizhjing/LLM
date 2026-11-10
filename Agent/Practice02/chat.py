@@ -447,7 +447,8 @@ def _stream_collect(resp):
 cfg = configparser.ConfigParser()
 cfg.read(Path(__file__).parent / "config.ini", encoding="utf-8")
 base_url = cfg["llm"]["base_url"]
-api_key = cfg["llm"]["api_key"]
+# 优先读环境变量 SILICONFLOW_API_KEY,避免把密钥写进 config.ini
+api_key = os.environ.get("SILICONFLOW_API_KEY", "").strip() or cfg["llm"]["api_key"]
 model = cfg["llm"]["model"]
 enable_thinking = cfg.getboolean("llm", "enable_thinking", fallback=False)
 typewriter_delay = cfg.getfloat("llm", "typewriter_delay", fallback=0.01)

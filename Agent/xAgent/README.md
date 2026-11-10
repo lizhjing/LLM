@@ -12,6 +12,18 @@
 - **上下文压缩**：接近窗口上限时归档原始上下文到 `.agents/context/`，生成摘要后继续对话；配合 `recallContext` 工具做本地全文检索
 - **密钥安全**：支持环境变量、Windows 凭据管理器（DPAPI）与配置文件三种方式，避免明文提交
 
+## I 安装依赖
+
+要求 Python 3.10+。建议使用独立虚拟环境（`dist/`、`build/`、`.venv/` 均已被 `.gitignore` 忽略）：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+`requirements.txt` 中 `textual`、`requests`、`mcp` 为必需；`trafilatura` 为可选，仅 `fetchArticle` 工具需要。
+
 ## 运行
 
 ```powershell
@@ -22,6 +34,16 @@ python main.py --clear-key llm  # 删除凭据
 ```
 
 首次运行前，把 `config.ini.example` 复制为 `config.ini` 并填写 `[llm]`、`[search]` 配置（该文件已被 `.gitignore` 忽略）。
+
+需要使用 MCP 工具时，把 `.mcp.json.example` 复制为 `.mcp.json`（放在启动工作目录），按注释填入 `stdio` 或 `streamable_http` 服务器；`.mcp.json` 已被 `.gitignore` 忽略。
+
+## 项目说明（AGENTS.md）
+
+在启动工作目录放一个 `AGENTS.md`，其内容会在会话建立时**一次性注入为 system 消息**（位于 system 提示之后），用于向 Agent 交代项目约定（如"回答用中文""提交前先跑测试"）。
+
+- 文件名可通过 `[agent] agents_md_name` 配置，默认 `AGENTS.md`；找不到时回退尝试 `AGENT.md`，两者都没有则静默跳过。
+- 内容超过 `[agent] agents_md_max_chars`（默认 32768 字符）时按上限截断并注明。
+- 会话恢复、重置、上下文压缩后该说明都会重新就位，跨轮次持续生效。
 
 ## 目录
 

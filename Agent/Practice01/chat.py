@@ -1,5 +1,6 @@
 import configparser
 import json
+import os
 import time
 from pathlib import Path
 
@@ -9,7 +10,8 @@ import requests
 cfg = configparser.ConfigParser()
 cfg.read(Path(__file__).parent / "config.ini", encoding="utf-8")
 base_url = cfg["llm"]["base_url"]
-api_key = cfg["llm"]["api_key"]
+# 优先读环境变量 SILICONFLOW_API_KEY,避免把密钥写进 config.ini
+api_key = os.environ.get("SILICONFLOW_API_KEY", "").strip() or cfg["llm"]["api_key"]
 model = cfg["llm"]["model"]
 # 思考型模型(如 Qwen3 / Qwen3.5 系列)默认会先输出一段思考过程,
 # 那段时间里 delta 里只有 reasoning_content、没有 content,界面看起来像卡死,

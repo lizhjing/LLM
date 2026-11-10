@@ -20,37 +20,83 @@
 <div class="row"><button id="up" disabled>上传并嵌入</button> <span id="st"></span></div>
 <pre id="out"></pre>
 <script>
-const BASE="http://localhost:3001";
-const API_KEY="";  // 填入你自己的 AnythingLLM API Key（设置 → 工具 → API Key）
-const H={"Authorization":"Bearer "+API_KEY};
+const BASE="http://127.0.0.1:8010";
 let slug=null;
+let pendingLocation=null;
+const btn=document.getElementById("up"),st=document.getElementById("st"),out=document.getElementById("out");
+const retry=document.createElement("button");
+retry.id="retry";retry.textContent="重试向量化";retry.hidden=true;
+btn.after(retry);
 
-fetch(BASE+"/api/v1/workspaces",{headers:H})
- .then(r=>r.json()).then(d=>{
-   const w=d.workspaces[0];
+async function request(path,options={}){
+  const r=await fetch(path,options);
+  const text=await r.text();
+  let data=text;
+  try{data=JSON.parse(text);}catch(_){}
+  if(!r.ok){
+    const message=data&&data.error?(typeof data.error==="string"?data.error:data.error.message):text;
+    throw new Error("HTTP "+r.status+"："+(message||"请求失败"));
+  }
+  return data;
+}
+
+st.textContent="读取工作区中…";
+request(BASE+"/api/workspaces")
+ .then(d=>{
+   const workspaces=Array.isArray(d.workspaces)?d.workspaces:[];
+   if(!workspaces.length)throw new Error("没有可用工作区");
+   const w=workspaces[0];
    slug=w.slug;
    document.getElementById("ws").textContent="目标工作区："+w.name+"（slug: "+slug+"）";
-   document.getElementById("up").disabled=false;
- }).catch(e=>{document.getElementById("ws").innerHTML='<span class="err">工作区读取失败：'+e+"</span>";});
+   st.textContent="";
+   btn.disabled=false;
+ }).catch(e=>{
+   document.getElementById("ws").textContent="工作区读取失败："+e.message;
+   document.getElementById("ws").className="err";
+   st.textContent="失败";
+ });
 
-document.getElementById("up").onclick=async()=>{
+async function embedPending(){
+  if(!pendingLocation)return;
+  st.textContent="向量化中…";btn.disabled=true;retry.disabled=true;
+  try{
+    const d=await request(BASE+"/api/embed?slug="+encodeURIComponent(slug),{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({adds:[pendingLocation]})
+    });
+    if(d&&d.success===false)throw new Error(d.message||"AnythingLLM 未确认向量化成功");
+    st.textContent="完成：已嵌入";
+    out.textContent="文档位置："+pendingLocation+"\n向量化状态：已完成";
+    pendingLocation=null;retry.hidden=true;
+  }catch(e){
+    st.textContent="失败：文档已入库但未向量化";
+    out.textContent="文档位置："+pendingLocation+"\n错误："+e.message+"\n请点击“重试向量化”。";
+    retry.hidden=false;
+  }finally{
+    btn.disabled=!slug;retry.disabled=false;
+  }
+}
+
+btn.onclick=async()=>{
   const f=document.getElementById("file").files[0];
   if(!f){alert("请先选择文件");return;}
-  const btn=document.getElementById("up"),st=document.getElementById("st"),out=document.getElementById("out");
-  btn.disabled=true;st.textContent="上传中…";out.textContent="";
+  btn.disabled=true;retry.hidden=true;pendingLocation=null;
+  st.textContent="上传中…";out.textContent="";
   const fd=new FormData();
-  fd.append("file",f);
-  fd.append("addToWorkspaces",slug);
+  fd.append("file",f);fd.append("addToWorkspaces",slug);
   try{
-    const r=await fetch(BASE+"/api/v1/document/upload",{method:"POST",headers:H,body:fd});
-    const t=await r.text();
-    let pretty=t;
-    try{pretty=JSON.stringify(JSON.parse(t),null,2);}catch(_){}
-    out.textContent="HTTP "+r.status+"\n\n"+pretty;
-    st.textContent=r.ok?"完成":"失败";
-  }catch(e){out.innerHTML='<span class="err">请求出错：'+e+"</span>";st.textContent="出错";}
-  btn.disabled=false;
+    const d=await request(BASE+"/api/upload",{method:"POST",body:fd});
+    const location=d&&Array.isArray(d.documents)&&d.documents[0]&&d.documents[0].location;
+    if(!location)throw new Error("上传响应缺少 documents[0].location");
+    pendingLocation=location;
+    out.textContent="文档位置："+location;
+    await embedPending();
+  }catch(e){
+    st.textContent="失败：上传未完成";out.textContent="错误："+e.message;
+    btn.disabled=false;
+  }
 };
+retry.onclick=embedPending;
 </script>
 </body>
 </html>

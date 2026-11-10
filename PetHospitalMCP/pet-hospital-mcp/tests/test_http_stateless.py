@@ -95,7 +95,7 @@ async def test_stateless_discover_list_and_call(mcp_stack) -> None:
 
                     tools_result = await session.list_tools()
                     tool_names = [tool.name for tool in tools_result.tools]
-                    assert tool_names == ["list_pets"]
+                    assert set(tool_names) == {"list_pets", "get_pet"}
 
                     # 成功调用
                     result = await session.call_tool(

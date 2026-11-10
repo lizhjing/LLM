@@ -61,6 +61,8 @@ Thumbs.db
 *.tmp
 *.bak
 .screenshots/
+.workbuddy/
+.slidep/
 
 # ===== 项目特定 =====
 PetHospitalMCP/windows/

@@ -1,8 +1,8 @@
 """CLI 工具:RunCli —— 让 Agent 通过 subprocess 调用本地命令行程序。
 
 安全边界:命令必须在白名单内(默认集合,可用环境变量 XAGENT_CLI_ALLOWLIST
-覆盖);shell/脚本宿主(cmd/powershell/wscript 等)无条件禁止,防止 `cmd /c`
-类任意命令执行。程序名与参数始终以列表 + shell=False 执行,无拼接注入问题。
+覆盖);cmd/powershell/wscript 等无条件禁止,python/node 等脚本宿主默认禁止,
+需要时由用户显式 opt-in。程序名与参数始终以列表 + shell=False 执行,无拼接注入问题。
 """
 
 import os
@@ -51,7 +51,7 @@ def _truncate(text: str) -> str:
 
 
 # ===== 命令执行安全边界 =====
-# 始终禁止的 shell/脚本宿主(即使被加入白名单也不放行),堵住 cmd /c、python -c 类任意执行
+# 始终禁止的 shell/脚本宿主(即使被加入白名单也不放行);默认禁止一切脚本宿主,需要时由用户显式 opt-in
 _ALWAYS_BLOCKED = {
     "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
     "wscript", "wscript.exe", "cscript", "cscript.exe", "mshta", "mshta.exe",
@@ -59,8 +59,7 @@ _ALWAYS_BLOCKED = {
 }
 # 默认命令白名单;环境变量 XAGENT_CLI_ALLOWLIST(逗号分隔)可整体覆盖
 _DEFAULT_ALLOWLIST = {
-    "officecli", "git", "python", "python3", "pip", "node", "npm",
-    "where", "dir", "type", "findstr", "curl", "ping", "ipconfig",
+    "officecli", "git", "where", "dir", "type", "findstr", "curl", "ping", "ipconfig",
 }
 
 
@@ -159,7 +158,7 @@ def register(registry: ToolRegistry) -> None:
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "程序名称或完整路径,如 python、git、ipconfig",
+                        "description": "程序名称或完整路径,如 git、ipconfig",
                     },
                     "args": {
                         "type": "array",

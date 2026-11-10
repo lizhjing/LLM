@@ -21,6 +21,7 @@ from .config import Settings, load_settings
 from .logging_config import configure_logging, get_logger
 from .rest_client import PetHospitalClient
 from .tools.list_pets import register_list_pets_tool
+from .tools.get_pet import register_get_pet_tool
 
 logger = get_logger("server")
 
@@ -60,8 +61,9 @@ def build_server(
         version=__version__,
     )
 
-    # 唯一工具（本次不实现阶段二的其他工具）
+    # 两个只读工具
     register_list_pets_tool(server, client)
+    register_get_pet_tool(server, client)
 
     @server.custom_route("/health", methods=["GET"])
     async def health_check(request: object) -> JSONResponse:  # noqa: ARG001
